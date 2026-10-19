@@ -1,8 +1,7 @@
 # MySQL 初始化镜像：7 库建库建表 + 种子数据打进镜像
 # 首次启动（PVC 为空）时 MySQL entrypoint 自动按序执行 /docker-entrypoint-initdb.d/*.sql
 # 构建上下文 = ReRail 仓库根目录（build-services.sh 或手动构建）
-ARG ACR_BASE
-FROM ${ACR_BASE}/12306-mysql:8.0
+FROM mysql:8.0
 # 暗坑：官方镜像 entrypoint 的 mysql 客户端在 POSIX locale 下默认 latin1，
 # 读 UTF-8 SQL 文件入库会把中文双重编码（Part C 实录：purchase 校验「列车车站数据错误」，
 # 库内字节 C3A5C592... = "北"的 UTF-8 再编一次）。[client] 显式 utf8mb4 后
