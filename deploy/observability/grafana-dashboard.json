@@ -1,0 +1,512 @@
+{
+ "dashboard": {
+  "title": "ReRail 全景监控",
+  "uid": "rerail-full",
+  "tags": [
+   "rerail"
+  ],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+   "from": "now-30m",
+   "to": "now"
+  },
+  "panels": [
+   {
+    "id": 1,
+    "type": "timeseries",
+    "title": "RPS（按服务）",
+    "gridPos": {
+     "x": 0,
+     "y": 0,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service) (rate(http_server_request_duration_seconds_count[30s]))",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "reqps",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 2,
+    "type": "timeseries",
+    "title": "慢请求占比 >10s（按服务）",
+    "gridPos": {
+     "x": 8,
+     "y": 0,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service) (rate(http_server_request_duration_seconds_bucket{le=\"+Inf\"}[30s]) - rate(http_server_request_duration_seconds_bucket{le=\"10\"}[30s])) / sum by(service) (rate(http_server_request_duration_seconds_bucket{le=\"+Inf\"}[30s])) * 100",
+      "legendFormat": "{{service}} 占比%",
+      "refId": "A"
+     },
+     {
+      "expr": "sum by(service) (rate(http_server_request_duration_seconds_bucket{le=\"+Inf\"}[30s]) - rate(http_server_request_duration_seconds_bucket{le=\"10\"}[30s]))",
+      "legendFormat": "{{service}} 绝对量 req/s",
+      "refId": "B"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 8
+      },
+      "min": 0
+     }
+    },
+    "description": "完成耗时超过 10s（k6 客户端超时口径）的请求占比；绝对量曲线为次轴"
+   },
+   {
+    "id": 3,
+    "type": "timeseries",
+    "title": "请求延迟 p95（按服务）",
+    "gridPos": {
+     "x": 16,
+     "y": 0,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "histogram_quantile(0.95, sum by(service, le) (rate(http_server_request_duration_seconds_bucket{http_route!=\"/api/ticket-service/temp/seat/reset\"}[30s])))",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 4,
+    "type": "timeseries",
+    "title": "各接口 RPS",
+    "gridPos": {
+     "x": 0,
+     "y": 8,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service, http_route) (rate(http_server_request_duration_seconds_count{http_route!~\"/initialize.*|/temp.*\"}[30s]))",
+      "legendFormat": "{{service}}:{{http_route}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "reqps",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 5,
+    "type": "timeseries",
+    "title": "各接口 p95 延迟",
+    "gridPos": {
+     "x": 8,
+     "y": 8,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "histogram_quantile(0.95, sum by(service, http_route, le) (rate(http_server_request_duration_seconds_bucket{http_route!~\"/initialize.*|/temp.*\"}[30s])))",
+      "legendFormat": "{{service}}:{{http_route}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 6,
+    "type": "timeseries",
+    "title": "服务间调用延迟 p95",
+    "gridPos": {
+     "x": 16,
+     "y": 8,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "histogram_quantile(0.95, sum by(service, le) (rate(http_client_request_duration_seconds_bucket[30s])))",
+      "legendFormat": "{{service}} → 下游",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 7,
+    "type": "timeseries",
+    "title": "JVM GC 暂停时间",
+    "gridPos": {
+     "x": 0,
+     "y": 16,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service) (rate(jvm_gc_duration_seconds_sum[30s])) * 1000",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "ms",
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 8,
+    "type": "timeseries",
+    "title": "JVM 堆使用率",
+    "gridPos": {
+     "x": 8,
+     "y": 16,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service) (jvm_memory_used_bytes{jvm_memory_type=\"heap\"}) / sum by(service) (jvm_memory_committed_bytes{jvm_memory_type=\"heap\"}) * 100",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 8
+      },
+      "min": 0,
+      "max": 100
+     }
+    }
+   },
+   {
+    "id": 9,
+    "type": "timeseries",
+    "title": "JVM 线程数",
+    "gridPos": {
+     "x": 16,
+     "y": 16,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "jvm_thread_count",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "custom": {
+       "fillOpacity": 8
+      }
+     }
+    }
+   },
+   {
+    "id": 10,
+    "type": "timeseries",
+    "title": "DB 连接池利用率",
+    "gridPos": {
+     "x": 0,
+     "y": 24,
+     "w": 16,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service, pool_name) (db_client_connections_usage{state=\"used\"}) / sum by(service, pool_name) (db_client_connections_max) * 100",
+      "legendFormat": "{{service}}:{{pool_name}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 8
+      },
+      "min": 0,
+      "max": 100,
+      "thresholds": {
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 70
+        },
+        {
+         "color": "red",
+         "value": 90
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": 11,
+    "type": "timeseries",
+    "title": "节点 CPU",
+    "gridPos": {
+     "x": 0,
+     "y": 32,
+     "w": 12,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "100 - avg by(node) (rate(node_cpu_seconds_total{mode=\"idle\",job=\"node-exporter\",node!~\"app-1|app-2\"}[30s]))*100",
+      "legendFormat": "{{node}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 5
+      },
+      "min": 0,
+      "max": 100
+     }
+    }
+   },
+   {
+    "id": 12,
+    "type": "timeseries",
+    "title": "节点内存使用",
+    "gridPos": {
+     "x": 12,
+     "y": 32,
+     "w": 12,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "(1 - node_memory_MemAvailable_bytes{job=\"node-exporter\",node!~\"app-1|app-2\"} / node_memory_MemTotal_bytes{job=\"node-exporter\",node!~\"app-1|app-2\"}) * 100",
+      "legendFormat": "{{node}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 5
+      },
+      "min": 0,
+      "max": 100
+     }
+    }
+   },
+   {
+    "id": 13,
+    "type": "timeseries",
+    "title": "容器 CPU Top",
+    "gridPos": {
+     "x": 0,
+     "y": 40,
+     "w": 12,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "topk(10, sum by(name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name=~\"rerail-.*\",image!=\"\"}[30s]))*100)",
+      "legendFormat": "{{name}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percent",
+      "custom": {
+       "fillOpacity": 5
+      },
+      "min": 0
+     }
+    }
+   },
+   {
+    "id": 14,
+    "type": "timeseries",
+    "title": "容器内存 Top",
+    "gridPos": {
+     "x": 12,
+     "y": 40,
+     "w": 12,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "topk(10, sum by(name) (container_memory_working_set_bytes{job=\"cadvisor\",name=~\"rerail-.*\"}))/1024/1024",
+      "legendFormat": "{{name}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "mbytes",
+      "custom": {
+       "fillOpacity": 5
+      },
+      "min": 0
+     }
+    }
+   },
+   {
+    "id": 15,
+    "type": "timeseries",
+    "title": "DB 等待连接的请求数",
+    "gridPos": {
+     "x": 16,
+     "y": 24,
+     "w": 8,
+     "h": 8
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": null
+    },
+    "targets": [
+     {
+      "expr": "sum by(service) (db_client_connections_pending_requests)",
+      "legendFormat": "{{service}}",
+      "refId": "A"
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "unit": "short",
+      "custom": {
+       "fillOpacity": 8
+      },
+      "thresholds": {
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "red",
+         "value": 1
+        }
+       ]
+      }
+     }
+    }
+   }
+  ]
+ },
+ "overwrite": true
+}

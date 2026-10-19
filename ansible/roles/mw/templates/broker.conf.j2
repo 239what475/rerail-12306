@@ -1,0 +1,13 @@
+brokerClusterName = DefaultCluster
+brokerName = broker-a
+brokerId = 0
+# 载体项目要求 broker 自动创建 topic，否则下单链路消息发送失败
+autoCreateTopicEnable = true
+autoCreateSubscriptionGroup = true
+# brokerIP1 必须是 mw 内网 IP（客户端跨机器连 broker，不能是容器内地址）
+brokerIP1 = {{ mw_ip }}
+listenPort = 10911
+storePathRootDir = /home/rocketmq/store
+deleteWhen = 04
+fileReservedTime = 48
+flushDiskType = ASYNC_FLUSH

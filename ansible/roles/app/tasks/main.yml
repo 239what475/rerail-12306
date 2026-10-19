@@ -1,0 +1,51 @@
+# role app：user/ticket/order/pay 四服务（合并节点）+ OTel agent
+# 依赖：db(3306)、mw(8848/6379/9876) 已就绪（site.yml play 顺序保证）
+---
+- name: 部署目录
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/{{ item }}"
+    state: directory
+  loop: [app, runtime/shardingsphere]
+
+- name: OTel agent JAR（builder 构建产物，控制机本地分发）
+  ansible.builtin.copy:
+    src: "{{ otel_jar_local }}"
+    dest: "{{ rerail_root }}/otel/opentelemetry-javaagent.jar"
+    mode: "0644"
+
+- name: 分片配置（user/order/pay 经 ShardingSphere 分库分表）
+  ansible.builtin.template:
+    src: "shardingsphere/{{ item }}.yaml.j2"
+    dest: "{{ rerail_root }}/deploy/runtime/shardingsphere/{{ item }}.yaml"
+    mode: "0644"
+  loop: [user, order, pay]
+
+- name: app compose
+  ansible.builtin.template:
+    src: compose-app.yml.j2
+    dest: "{{ rerail_root }}/deploy/app/compose.yml"
+    mode: "0644"
+
+- name: 清理历史 .env（compose 已模板化直填 IP，避免旧变量残留干扰）
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/app/.env"
+    state: absent
+
+- name: 拉镜像并启动四服务
+  ansible.builtin.command: docker compose -p rerail-app up -d --pull missing
+  args:
+    chdir: "{{ rerail_root }}/deploy/app"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout or 'Recreated' in compose_up.stdout"
+
+- name: 等待 user 服务 9001 就绪（注册登录依赖）
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 9001
+    timeout: 180
+
+- name: 等待 ticket 服务 9003 就绪
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 9003
+    timeout: 180

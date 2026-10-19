@@ -1,0 +1,7 @@
+# 全局 IP 变量（惰性求值，从 inventory 派生，零硬编码）
+# 该文件入库；凭据在 group_vars/all.yml（gitignored）
+entry_ip: "{{ hostvars[groups['entry'][0]].ansible_host }}"
+app_ip: "{{ hostvars[groups['app'][0]].ansible_host }}"
+db_ip: "{{ hostvars[groups['db'][0]].ansible_host }}"
+mw_ip: "{{ hostvars[groups['mw'][0]].ansible_host }}"
+builder_ip: "{{ hostvars[groups['builder'][0]].ansible_host }}"

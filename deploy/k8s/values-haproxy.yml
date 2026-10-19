@@ -1,0 +1,94 @@
+# HAProxy values — 数据库 TCP 代理（迁移工具，可插拔）
+# 用法：helm template dbproxy haproxytech/haproxy -n rerail -f values-haproxy.yml > 50-haproxy-rendered.yml
+# 部署：kubectl apply -f 50-haproxy-rendered.yml
+#
+# ⚠️  迁移时必须同时切换所有副本的后端（runtime API）
+#    只切一个 Pod 会导致脑裂——锁异常（实测踩坑）
+#
+# 热切换命令（切所有 Pod）：
+#   for pod in <pod1_ip> <pod2_ip>; do
+#     echo "set server redis_backend/redis-server addr <new_ip> port 6379" | nc $pod 9999
+#   done
+
+replicaCount: 2
+
+image:
+  repository: <ACR_REGISTRY>/12306-haproxy
+  tag: "2.9"
+  pullPolicy: IfNotPresent
+
+config: |
+  global
+    log stdout format raw local0
+    maxconn 4096
+    stats socket *:9999 level admin
+
+  defaults
+    log global
+    mode tcp
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+    option tcplog
+
+  listen redis_backend
+    bind *:6379
+    server redis-server redis.rerail:6379 check inter 2s fall 3 rise 2
+
+  listen mysql_backend
+    bind *:3306
+    server mysql-server mysql.rerail:3306 check inter 2s fall 3 rise 2
+
+containerPorts: {}
+
+rawContainerPorts:
+  - name: redis
+    containerPort: 6379
+    protocol: TCP
+  - name: mysql
+    containerPort: 3306
+    protocol: TCP
+  - name: admin
+    containerPort: 9999
+    protocol: TCP
+
+service:
+  type: ClusterIP
+  additionalPorts:
+    redis: 6379
+    mysql: 3306
+    admin: 9999
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+livenessProbe:
+  tcpSocket:
+    port: 6379
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: 6379
+  initialDelaySeconds: 3
+  periodSeconds: 5
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: haproxy
+          topologyKey: kubernetes.io/hostname
+
+serviceAccount:
+  create: true
+  name: ""

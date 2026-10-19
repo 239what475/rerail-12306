@@ -1,0 +1,204 @@
+# 13 · order Service（ShardingSphere + RocketMQ 异步落单）
+# 分片配置内嵌于 ss-order ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ss-order
+  namespace: rerail
+data:
+  shardingsphere.yaml: |
+    dataSources:
+      ds_0:
+        dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+        driverClassName: com.mysql.cj.jdbc.Driver
+        jdbcUrl: jdbc:mysql://dbproxy-haproxy.rerail:3306/12306_order_0?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+
+      ds_1:
+        dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+        driverClassName: com.mysql.cj.jdbc.Driver
+        jdbcUrl: jdbc:mysql://dbproxy-haproxy.rerail:3306/12306_order_1?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+
+    rules:
+      - !SHARDING
+        tables:
+          t_order:
+            actualDataNodes: ds_${0..1}.t_order_${0..31}
+            databaseStrategy:
+              complex:
+                shardingColumns: user_id,order_sn
+                shardingAlgorithmName: order_database_complex_mod
+            tableStrategy:
+              complex:
+                shardingColumns: user_id,order_sn
+                shardingAlgorithmName: order_table_complex_mod
+          t_order_item:
+            actualDataNodes: ds_${0..1}.t_order_item_${0..31}
+            databaseStrategy:
+              complex:
+                shardingColumns: user_id,order_sn
+                shardingAlgorithmName: order_item_database_complex_mod
+            tableStrategy:
+              complex:
+                shardingColumns: user_id,order_sn
+                shardingAlgorithmName: order_item_table_complex_mod
+          t_order_item_passenger:
+            actualDataNodes: ds_${0..1}.t_order_item_passenger_${0..31}
+            databaseStrategy:
+              standard:
+                shardingColumn: id_card
+                shardingAlgorithmName: order_passenger_relation_database_mod
+            tableStrategy:
+              standard:
+                shardingColumn: id_card
+                shardingAlgorithmName: order_passenger_relation_table_mod
+        shardingAlgorithms:
+          order_database_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.orderservice.dao.algorithm.OrderCommonDataBaseComplexAlgorithm
+              sharding-count: 32
+              table-sharding-count: 16
+              strategy: complex
+          order_table_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.orderservice.dao.algorithm.OrderCommonTableComplexAlgorithm
+              sharding-count: 32
+              strategy: complex
+          order_item_database_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.orderservice.dao.algorithm.OrderCommonDataBaseComplexAlgorithm
+              sharding-count: 32
+              table-sharding-count: 16
+              strategy: complex
+          order_item_table_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.orderservice.dao.algorithm.OrderCommonTableComplexAlgorithm
+              sharding-count: 32
+              strategy: complex
+          order_passenger_relation_database_mod:
+            type: CLASS_BASED
+            props:
+              sharding-count: 32
+              table-sharding-count: 16
+              strategy: standard
+              algorithmClassName: org.opengoofy.index12306.framework.starter.database.algorithm.sharding.CustomDbHashModShardingAlgorithm
+          order_passenger_relation_table_mod:
+            type: HASH_MOD
+            props:
+              sharding-count: 32
+      - !ENCRYPT
+        tables:
+          t_order_item:
+            columns:
+              id_card:
+                cipherColumn: id_card
+                encryptorName: common_encryptor
+              phone:
+                cipherColumn: phone
+                encryptorName: common_encryptor
+            queryWithCipherColumn: true
+        encryptors:
+          common_encryptor:
+            type: AES
+            props:
+              aes-key-value: d6oadClrrb9A3GWo
+    props:
+      sql-show: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+  namespace: rerail
+  labels:
+    app: order
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order
+  template:
+    metadata:
+      labels:
+        app: order
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: 'true'
+    spec:
+      serviceAccountName: rerail-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: order
+        image: <ACR_REGISTRY>/12306-order:otel
+        ports:
+        - containerPort: 9003
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:shardingsphere:absolutepath:/app/config/shardingsphere.yaml
+        - name: SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR
+          value: nacos.rerail:8848
+        - name: SPRING_DATA_REDIS_HOST
+          value: dbproxy-haproxy.rerail
+        - name: SPRING_DATA_REDIS_PORT
+          value: '6379'
+        - name: SPRING_DATA_REDIS_PASSWORD
+          value: '123456'
+        - name: SPRING_DATA_REDIS_REDISSON_CONFIG
+          value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+        - name: SPRING_REDIS_REDISSON_CONFIG
+          value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+        - name: ROCKETMQ_NAME_SERVER
+          value: rocketmq-namesrv.rerail:9876
+        - name: JAVA_OPTS
+          value: -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms768m -Xmx1280m
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1536Mi
+          limits:
+            cpu: 2
+            memory: 2Gi
+        volumeMounts:
+        - name: shardingsphere
+          mountPath: /app/config
+        livenessProbe:
+          tcpSocket:
+            port: 9003
+          initialDelaySeconds: 180
+          periodSeconds: 15
+          failureThreshold: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9003
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 6
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - sleep 10
+      volumes:
+      - name: shardingsphere
+        configMap:
+          name: ss-order
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order
+  namespace: rerail
+spec:
+  selector:
+    app: order
+  ports:
+  - port: 9003
+    targetPort: 9003

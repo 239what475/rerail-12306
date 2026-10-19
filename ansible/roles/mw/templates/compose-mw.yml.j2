@@ -1,0 +1,48 @@
+name: rerail-mw
+
+services:
+  redis:
+    image: {{ acr_address }}/12306-redis:7-alpine
+    container_name: rerail-redis
+    network_mode: host
+    restart: unless-stopped
+    # 密码与载体配置写死值一致；noeviction 防锁/余量键被驱逐
+    command: ["redis-server", "--requirepass", "{{ redis_password }}", "--maxmemory", "768mb"]
+
+  rocketmq-namesrv:
+    image: {{ acr_address }}/12306-rocketmq:4.9.4
+    container_name: rerail-mqnamesrv
+    network_mode: host
+    restart: unless-stopped
+    command: ["sh", "mqnamesrv"]
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  rocketmq-broker:
+    image: {{ acr_address }}/12306-rocketmq:4.9.4
+    container_name: rerail-mqbroker
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - rocketmq-namesrv
+    command: ["sh", "mqbroker", "-n", "127.0.0.1:9876", "-c", "/home/rocketmq/conf/broker.conf"]
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx1024m"
+    volumes:
+      - ../runtime/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+      - ./brokerstore:/home/rocketmq/store
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  nacos:
+    image: {{ acr_address }}/12306-nacos:v2.2.3
+    container_name: rerail-nacos
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      NACOS_SERVER_PORT: "8848"
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

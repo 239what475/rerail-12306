@@ -1,0 +1,43 @@
+# 20 · ALB Ingress 混合后端（官方场景二：集群内 Pod + 集群外 ECS 加权）
+# 灰度开关 = 注解里的两个 Weight（改完 apply 秒级生效）
+#   gateway Service   → 控制器经 Endpoints 自动同步 Pod（HPA 联动）
+#   sgp-h933...source → 源端 nginx 组（Terraform 建，IP 稳定）
+# 测试轮次记录：①100/0 源端✓ ②0/100 ACK（当前）
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rerail-gateway
+  namespace: rerail
+  annotations:
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/actions.forward: |
+      [{
+        "type": "ForwardGroup",
+        "ForwardConfig": {
+          "ServerGroups": [
+            {
+              "ServiceName": "gateway",
+              "ServicePort": 9000,
+              "Weight": 100
+            },
+            {
+              "ServerGroupID": "sgp-h933fvbl71lvpg5e3h",
+              "Weight": 0
+            }
+          ]
+        }
+      }]
+spec:
+  ingressClassName: alb
+  rules:
+    - host: <你的域名>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: forward
+                port:
+                  name: use-annotation

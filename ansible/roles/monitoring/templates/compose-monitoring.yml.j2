@@ -1,0 +1,33 @@
+name: rerail-monitoring
+
+# Prometheus 采集器：node_exporter(9100) + cAdvisor(8080)，Prometheus 在 builder 抓取
+services:
+  node-exporter:
+    image: {{ acr_address }}/12306-node-exporter:v1.9.1
+    container_name: rerail-nodeexporter
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  cadvisor:
+    image: {{ acr_address }}/12306-cadvisor:v0.60.6
+    container_name: rerail-cadvisor
+    network_mode: host
+    restart: unless-stopped
+    privileged: true
+    devices: [/dev/kmsg]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

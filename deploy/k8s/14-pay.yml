@@ -1,0 +1,144 @@
+# 14 · pay Service（ShardingSphere 支付分库）
+# 分片配置内嵌于 ss-pay ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ss-pay
+  namespace: rerail
+data:
+  shardingsphere.yaml: |
+    dataSources:
+      ds_0:
+        dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+        driverClassName: com.mysql.cj.jdbc.Driver
+        jdbcUrl: jdbc:mysql://dbproxy-haproxy.rerail:3306/12306_pay_0?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+
+      ds_1:
+        dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+        driverClassName: com.mysql.cj.jdbc.Driver
+        jdbcUrl: jdbc:mysql://dbproxy-haproxy.rerail:3306/12306_pay_1?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+
+    rules:
+      - !SHARDING
+        tables:
+          t_pay:
+            actualDataNodes: ds_${0..1}.t_pay_${0..31}
+            databaseStrategy:
+              complex:
+                shardingColumns: order_sn,pay_sn
+                shardingAlgorithmName: pay_database_complex_mod
+            tableStrategy:
+              complex:
+                shardingColumns: order_sn,pay_sn
+                shardingAlgorithmName: pay_table_complex_mod
+        shardingAlgorithms:
+          pay_database_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.payservice.dao.algorithm.PayDataBaseComplexAlgorithm
+              sharding-count: 32
+              table-sharding-count: 16
+              strategy: complex
+          pay_table_complex_mod:
+            type: CLASS_BASED
+            props:
+              algorithmClassName: org.opengoofy.index12306.biz.payservice.dao.algorithm.PayTableComplexAlgorithm
+              sharding-count: 32
+              strategy: complex
+    props:
+      sql-show: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pay
+  namespace: rerail
+  labels:
+    app: pay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pay
+  template:
+    metadata:
+      labels:
+        app: pay
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: 'true'
+    spec:
+      serviceAccountName: rerail-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: pay
+        image: <ACR_REGISTRY>/12306-pay:otel
+        ports:
+        - containerPort: 9004
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:shardingsphere:absolutepath:/app/config/shardingsphere.yaml
+        - name: SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR
+          value: nacos.rerail:8848
+        - name: SPRING_DATA_REDIS_HOST
+          value: dbproxy-haproxy.rerail
+        - name: SPRING_DATA_REDIS_PORT
+          value: '6379'
+        - name: SPRING_DATA_REDIS_PASSWORD
+          value: '123456'
+        - name: SPRING_DATA_REDIS_REDISSON_CONFIG
+          value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+        - name: SPRING_REDIS_REDISSON_CONFIG
+          value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+        - name: ROCKETMQ_NAME_SERVER
+          value: rocketmq-namesrv.rerail:9876
+        - name: JAVA_OPTS
+          value: -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms512m -Xmx768m
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2
+            memory: 1536Mi
+        volumeMounts:
+        - name: shardingsphere
+          mountPath: /app/config
+        livenessProbe:
+          tcpSocket:
+            port: 9004
+          initialDelaySeconds: 180
+          periodSeconds: 15
+          failureThreshold: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9004
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          failureThreshold: 6
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - sleep 10
+      volumes:
+      - name: shardingsphere
+        configMap:
+          name: ss-pay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pay
+  namespace: rerail
+spec:
+  selector:
+    app: pay
+  ports:
+  - port: 9004
+    targetPort: 9004

@@ -1,0 +1,184 @@
+# 04 · RocketMQ（NameServer + Broker，K8s 原生稳定地址方案）
+#
+# ⚠️  不可移植警告：04a 的 PV 绑定了特定磁盘 ID（d-2zei27fz...）
+#     重建集群时此清单会失败——需删除 04a 并改用 volumeClaimTemplates
+#     （当前静态绑定是余额不足时的权宜之计）
+
+# 镜像：ACR/12306-rocketmq:4.9.4（已镜像，零新增拉取）
+# 地址稳定性：broker 经 Headless Service 获得稳定 Pod DNS，
+#   brokerIP1 = rocketmq-broker-0.rocketmq-broker-headless.rerail.svc.cluster.local
+#   （域名注册，Pod 重建后 DNS 自动重指，替代 Part A 的 Pod IP 注入 hack）
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rocketmq-broker-conf
+  namespace: rerail
+data:
+  broker.conf: |
+    brokerClusterName = DefaultCluster
+    brokerName = broker-a
+    brokerId = 0
+    autoCreateTopicEnable = true
+    autoCreateSubscriptionGroup = true
+    brokerIP1 = rocketmq-broker-0.rocketmq-broker-headless.rerail.svc.cluster.local
+    listenPort = 10911
+    storePathRootDir = /home/rocketmq/store
+    deleteWhen = 04
+    fileReservedTime = 48
+    flushDiskType = ASYNC_FLUSH
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rocketmq-namesrv
+  namespace: rerail
+  labels: { app: rocketmq-namesrv }
+spec:
+  serviceName: rocketmq-namesrv
+  replicas: 1
+  selector:
+    matchLabels: { app: rocketmq-namesrv }
+  template:
+    metadata:
+      labels: { app: rocketmq-namesrv }
+    spec:
+      serviceAccountName: rerail-sa
+      containers:
+        - name: namesrv
+          image: <ACR_REGISTRY>/12306-rocketmq:4.9.4
+          command: ["sh", "mqnamesrv"]
+          ports:
+            - containerPort: 9876
+          env:
+            - name: JAVA_OPT_EXT
+              value: "-Xms256m -Xmx256m"
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            tcpSocket: { port: 9876 }
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rocketmq-namesrv
+  namespace: rerail
+spec:
+  selector: { app: rocketmq-namesrv }
+  ports:
+    - port: 9876
+      targetPort: 9876
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rocketmq-broker-headless
+  namespace: rerail
+spec:
+  clusterIP: None
+  selector: { app: rocketmq-broker }
+  ports:
+    - name: listen
+      port: 10911
+      targetPort: 10911
+    - name: vip
+      port: 10909
+      targetPort: 10909
+    - name: ha
+      port: 10912
+      targetPort: 10912
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rocketmq-broker
+  namespace: rerail
+  labels: { app: rocketmq-broker }
+spec:
+  serviceName: rocketmq-broker-headless
+  replicas: 1
+  selector:
+    matchLabels: { app: rocketmq-broker }
+  template:
+    metadata:
+      labels: { app: rocketmq-broker }
+    spec:
+      serviceAccountName: rerail-sa
+      initContainers:
+        - name: fix-perms
+          image: <ACR_REGISTRY>/12306-busybox:1.36
+          command: ["sh", "-c", "rm -rf /store/* /store/.[!.]* 2>/dev/null; chmod -R 777 /store"]
+          volumeMounts:
+            - name: store
+              mountPath: /store
+      containers:
+        - name: broker
+          image: <ACR_REGISTRY>/12306-rocketmq:4.9.4
+          command: ["sh", "mqbroker", "-n", "rocketmq-namesrv.rerail:9876", "-c", "/configmap/broker.conf"]
+          ports:
+            - containerPort: 10911
+          env:
+            - name: JAVA_OPT_EXT
+              value: "-Xms512m -Xmx1024m"
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts:
+            - name: configmap
+              mountPath: /configmap
+            - name: store
+              mountPath: /home/rocketmq/store
+          readinessProbe:
+            tcpSocket: { port: 10911 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
+      volumes:
+        - name: configmap
+          configMap:
+            name: rocketmq-broker-conf
+        - name: store
+          persistentVolumeClaim:
+            claimName: rocketmq-broker-store-static
+---
+# 04a · RocketMQ 存储静态绑定（复用账户已有空闲盘，不新建云盘）
+# 背景：账户余额不足无法新建 ESSD（InvalidAccountStatus.NotEnoughBalance），
+# 复用已在计费的 Available 磁盘 d-2zei27fzwx9tmz72o4b2（20Gi，cn-beijing-f，与节点同 AZ）
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-rocketmq-broker-reuse
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain   # 防误删：盘上有数据，回收留人工决策
+  storageClassName: rocketmq-static
+  csi:
+    driver: diskplugin.csi.alibabacloud.com
+    volumeHandle: d-2zei27fzwx9tmz72o4b2
+    volumeAttributes:
+      fsType: ext4
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["cn-beijing-f"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rocketmq-broker-store-static
+  namespace: rerail
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: rocketmq-static
+  resources:
+    requests:
+      storage: 20Gi

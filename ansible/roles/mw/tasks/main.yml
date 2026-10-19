@@ -1,0 +1,46 @@
+# role mw：Redis + RocketMQ + Nacos
+---
+- name: 部署目录
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/{{ item }}"
+    state: directory
+  loop: [mw, runtime/rocketmq]
+
+- name: broker.conf（brokerIP1 必须是 mw 内网 IP，否则客户端拿到容器内地址）
+  ansible.builtin.template:
+    src: broker.conf.j2
+    dest: "{{ rerail_root }}/deploy/runtime/rocketmq/broker.conf"
+    mode: "0644"
+
+# 坑位 A6.5#3：broker 镜像内非 root 运行，存储目录无权限则秒退（exit 253，无日志）
+# 2026-10-18 复现验证实测踩中（此前手工部署时代 chmod 过，role 漏了）
+- name: broker 存储目录权限
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/mw/brokerstore"
+    state: directory
+    mode: "0777"
+
+- name: mw compose
+  ansible.builtin.template:
+    src: compose-mw.yml.j2
+    dest: "{{ rerail_root }}/deploy/mw/compose.yml"
+    mode: "0644"
+
+- name: 启动 Redis/RocketMQ/Nacos
+  ansible.builtin.command: docker compose -p rerail-mw up -d --pull missing
+  args:
+    chdir: "{{ rerail_root }}/deploy/mw"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout or 'Recreated' in compose_up.stdout"
+
+- name: 等待 Nacos 8848 就绪（服务注册依赖）
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 8848
+    timeout: 120
+
+- name: 等待 RocketMQ 9876 就绪
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 9876
+    timeout: 120

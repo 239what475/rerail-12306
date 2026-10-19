@@ -1,0 +1,62 @@
+# 03 · Nacos StatefulSet（standalone，服务发现）
+# 镜像：ACR/12306-nacos:v2.2.3
+# 终端点：nacos.rerail:8848（HTTP）/ nacos.rerail:9848（gRPC）
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nacos
+  namespace: rerail
+  labels: { app: nacos }
+spec:
+  serviceName: nacos
+  replicas: 1
+  selector:
+    matchLabels: { app: nacos }
+  template:
+    metadata:
+      labels: { app: nacos }
+    spec:
+      serviceAccountName: rerail-sa
+      containers:
+        - name: nacos
+          image: <ACR_REGISTRY>/12306-nacos:v2.2.3
+          ports:
+            - containerPort: 8848
+              name: http
+            - containerPort: 9848
+              name: grpc
+          env:
+            - name: MODE
+              value: "standalone"
+            - name: NACOS_AUTH_ENABLE
+              value: "false"
+            - name: JVM_XMS
+              value: "512m"
+            - name: JVM_XMX
+              value: "512m"
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            httpGet:
+              path: /nacos/v1/console/health/readiness
+              port: 8848
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: rerail
+spec:
+  selector: { app: nacos }
+  ports:
+    - name: http
+      port: 8848
+      targetPort: 8848
+    - name: grpc
+      port: 9848
+      targetPort: 9848

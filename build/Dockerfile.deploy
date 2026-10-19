@@ -1,0 +1,7 @@
+# 12306-deploy：部署物料镜像（SQL 初始化 + 中间件配置 + 观测栈配置）
+# 构建上下文 = ReRail 仓库根目录（build-services.sh 传入 ..）
+# 用途：Phase C 换轨时从 ACR 拉取物料做对账/校验；Ansible 常规部署直接用仓库文件
+ARG ACR_BASE
+FROM ${ACR_BASE}/12306-alpine:3.19
+COPY deploy/ /deploy/
+CMD ["true"]

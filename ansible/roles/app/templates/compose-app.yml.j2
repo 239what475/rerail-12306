@@ -1,0 +1,113 @@
+name: rerail-app
+
+# 四个业务服务合并部署（8C16G 节点，2026-10 容量标定后的形态）
+# 端口: user 9001 / ticket 9003 / order 9002 / pay 9004
+# OTel: metrics 走 prometheus exporter(9464-9467)，traces 走 zipkin(采样 {{ otel_sampling_ratio }})
+services:
+  user-service:
+    image: {{ acr_address }}/12306-user:latest
+    container_name: rerail-user
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:shardingsphere:absolutepath:/app/config/shardingsphere.yaml
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: {{ mw_ip }}:8848
+      SPRING_DATA_REDIS_HOST: {{ mw_ip }}
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: "{{ redis_password }}"
+      OTEL_SERVICE_NAME: rerail-user
+      OTEL_TRACES_EXPORTER: zipkin
+      OTEL_METRICS_EXPORTER: prometheus
+      OTEL_EXPORTER_PROMETHEUS_HOST: "0.0.0.0"
+      OTEL_EXPORTER_PROMETHEUS_PORT: "9464"
+      OTEL_LOGS_EXPORTER: "none"
+      OTEL_EXPORTER_ZIPKIN_ENDPOINT: http://{{ builder_ip }}:9411/api/v2/spans
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "{{ otel_sampling_ratio }}"
+      JAVA_OPTS: -Dotel.instrumentation.http.default-bucket-boundaries=[0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms512m -Xmx768m
+    volumes:
+      - ../runtime/shardingsphere/user.yaml:/app/config/shardingsphere.yaml:ro
+      - ../../otel:/otel:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  ticket-service:
+    image: {{ acr_address }}/12306-ticket:latest
+    container_name: rerail-ticket
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://{{ db_ip }}:3306/12306_ticket?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: {{ mysql_root_password }}
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: {{ mw_ip }}:8848
+      SPRING_DATA_REDIS_HOST: {{ mw_ip }}
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: "{{ redis_password }}"
+      ROCKETMQ_NAME_SERVER: {{ mw_ip }}:9876
+      OTEL_SERVICE_NAME: rerail-ticket
+      OTEL_TRACES_EXPORTER: zipkin
+      OTEL_METRICS_EXPORTER: prometheus
+      OTEL_EXPORTER_PROMETHEUS_HOST: "0.0.0.0"
+      OTEL_EXPORTER_PROMETHEUS_PORT: "9465"
+      OTEL_LOGS_EXPORTER: "none"
+      OTEL_EXPORTER_ZIPKIN_ENDPOINT: http://{{ builder_ip }}:9411/api/v2/spans
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "{{ otel_sampling_ratio }}"
+      JAVA_OPTS: -Dotel.instrumentation.http.default-bucket-boundaries=[0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms512m -Xmx1024m
+    volumes:
+      - ../../otel:/otel:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  order-service:
+    image: {{ acr_address }}/12306-order:latest
+    container_name: rerail-order
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:shardingsphere:absolutepath:/app/config/shardingsphere.yaml
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: {{ mw_ip }}:8848
+      SPRING_DATA_REDIS_HOST: {{ mw_ip }}
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: "{{ redis_password }}"
+      ROCKETMQ_NAME_SERVER: {{ mw_ip }}:9876
+      OTEL_SERVICE_NAME: rerail-order
+      OTEL_TRACES_EXPORTER: zipkin
+      OTEL_METRICS_EXPORTER: prometheus
+      OTEL_EXPORTER_PROMETHEUS_HOST: "0.0.0.0"
+      OTEL_EXPORTER_PROMETHEUS_PORT: "9466"
+      OTEL_LOGS_EXPORTER: "none"
+      OTEL_EXPORTER_ZIPKIN_ENDPOINT: http://{{ builder_ip }}:9411/api/v2/spans
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "{{ otel_sampling_ratio }}"
+      JAVA_OPTS: -Dotel.instrumentation.http.default-bucket-boundaries=[0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms768m -Xmx1280m
+    volumes:
+      - ../runtime/shardingsphere/order.yaml:/app/config/shardingsphere.yaml:ro
+      - ../../otel:/otel:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  pay-service:
+    image: {{ acr_address }}/12306-pay:latest
+    container_name: rerail-pay
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:shardingsphere:absolutepath:/app/config/shardingsphere.yaml
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: {{ mw_ip }}:8848
+      SPRING_DATA_REDIS_HOST: {{ mw_ip }}
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: "{{ redis_password }}"
+      ROCKETMQ_NAME_SERVER: {{ mw_ip }}:9876
+      OTEL_SERVICE_NAME: rerail-pay
+      OTEL_TRACES_EXPORTER: zipkin
+      OTEL_METRICS_EXPORTER: prometheus
+      OTEL_EXPORTER_PROMETHEUS_HOST: "0.0.0.0"
+      OTEL_EXPORTER_PROMETHEUS_PORT: "9467"
+      OTEL_LOGS_EXPORTER: "none"
+      OTEL_EXPORTER_ZIPKIN_ENDPOINT: http://{{ builder_ip }}:9411/api/v2/spans
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "{{ otel_sampling_ratio }}"
+      JAVA_OPTS: -Dotel.instrumentation.http.default-bucket-boundaries=[0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10] -Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms512m -Xmx768m
+    volumes:
+      - ../runtime/shardingsphere/pay.yaml:/app/config/shardingsphere.yaml:ro
+      - ../../otel:/otel:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

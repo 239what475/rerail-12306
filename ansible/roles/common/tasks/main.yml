@@ -1,0 +1,69 @@
+# role common：sysctl + Docker（兜底）+ ACR login + 目录骨架
+# 依赖：仅 ansible.builtin（适配 Ubuntu apt 版 ansible 2.10，零集合依赖）
+---
+- name: sysctl 调优（压测已验证的参数）
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-rerail.conf
+    mode: "0644"
+    content: |
+      net.core.somaxconn = 65535
+      net.ipv4.tcp_max_syn_backlog = 16384
+      net.core.netdev_max_backlog = 16384
+  register: sysctl_conf
+
+- name: 应用 sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+  when: sysctl_conf.changed
+
+- name: Docker 已安装？
+  ansible.builtin.command: docker --version
+  register: docker_check
+  failed_when: false
+  changed_when: false
+
+- name: 安装 Docker（内网镜像源，主版本>=29 校验）
+  ansible.builtin.shell: |
+    set -euo pipefail
+    DOCKER_REPO="mirrors.cloud.aliyuncs.com"
+    apt-get update -qq
+    apt-get install -y -qq ca-certificates curl
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL "https://${DOCKER_REPO}/docker-ce/linux/ubuntu/gpg" -o /etc/apt/keyrings/docker.asc \
+      || curl -fsSL "http://${DOCKER_REPO}/docker-ce/linux/ubuntu/gpg" -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] http://${DOCKER_REPO}/docker-ce/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    systemctl enable --now docker
+    DOCKER_MAJOR=$(dpkg -s docker-ce | awk '/^Version:/{split($2,v,"[.:-]"); print v[2]}')
+    [ "${DOCKER_MAJOR:-0}" -ge 29 ] || { echo "docker ${DOCKER_MAJOR} < 29"; exit 1; }
+  when: docker_check.rc != 0
+
+- name: ACR 凭据临时文件（0600，登录后立即删除）
+  ansible.builtin.copy:
+    content: "{{ acr_password }}"
+    dest: /root/.acr-pass
+    mode: "0600"
+  no_log: true
+
+- name: ACR 登录（凭据经 group_vars/all.yml，不落仓库）
+  ansible.builtin.shell: "docker login -u '{{ acr_username }}' --password-stdin {{ acr_address.split('/')[0] }} < /root/.acr-pass"
+  changed_when: false
+  no_log: true
+
+- name: 删除 ACR 凭据临时文件
+  ansible.builtin.file:
+    path: /root/.acr-pass
+    state: absent
+  no_log: true
+
+- name: 目录骨架
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ rerail_root }}"
+    - "{{ rerail_root }}/deploy"
+    - "{{ rerail_root }}/otel"

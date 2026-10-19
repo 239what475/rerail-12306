@@ -1,0 +1,21 @@
+name: rerail-db
+
+services:
+  mysql:
+    image: {{ acr_address }}/12306-mysql:8.0
+    container_name: rerail-mysql
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: {{ mysql_root_password }}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --max_connections=1000
+    volumes:
+      - ../config/mysql-clients.cnf:/etc/mysql/conf.d/clients.cnf:ro
+      - ./data:/var/lib/mysql
+      - ../mysql-init:/docker-entrypoint-initdb.d:ro
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

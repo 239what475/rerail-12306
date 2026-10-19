@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['{{ app_ip }}:9100']
+        labels: { node: app }
+      - targets: ['{{ db_ip }}:9100']
+        labels: { node: db }
+      - targets: ['{{ entry_ip }}:9100']
+        labels: { node: entry }
+      - targets: ['{{ mw_ip }}:9100']
+        labels: { node: mw }
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['{{ app_ip }}:8080']
+        labels: { node: app }
+      - targets: ['{{ db_ip }}:8080']
+        labels: { node: db }
+      - targets: ['{{ entry_ip }}:8080']
+        labels: { node: entry }
+      - targets: ['{{ mw_ip }}:8080']
+        labels: { node: mw }
+
+  - job_name: otel-gateway
+    static_configs:
+      - targets: ['{{ entry_ip }}:9464']
+        labels: { service: gateway, node: entry }
+
+  - job_name: otel-user
+    static_configs:
+      - targets: ['{{ app_ip }}:9464']
+        labels: { service: user, node: app }
+
+  - job_name: otel-ticket
+    static_configs:
+      - targets: ['{{ app_ip }}:9465']
+        labels: { service: ticket, node: app }
+
+  - job_name: otel-order
+    static_configs:
+      - targets: ['{{ app_ip }}:9466']
+        labels: { service: order, node: app }
+
+  - job_name: otel-pay
+    static_configs:
+      - targets: ['{{ app_ip }}:9467']
+        labels: { service: pay, node: app }

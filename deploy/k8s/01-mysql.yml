@@ -1,0 +1,67 @@
+# 01 · MySQL StatefulSet（7 库分片，init SQL 打进镜像，零手工操作）
+# 镜像：ACR/12306-mysql-init:latest（基于 mysql:8.0 + 全套 initdb SQL）
+# 终端点：mysql.rerail:3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: rerail
+  labels: { app: mysql }
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels: { app: mysql }
+  template:
+    metadata:
+      labels: { app: mysql }
+    spec:
+      serviceAccountName: rerail-sa
+      containers:
+        - name: mysql
+          image: <ACR_REGISTRY>/12306-mysql-init:latest
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: "root"
+            - name: TZ
+              value: Asia/Shanghai
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+            - --default-time-zone=+08:00
+            - --max_connections=1000
+          resources:
+            requests: { cpu: 500m, memory: 2Gi }
+            limits: { cpu: "2", memory: 4Gi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "-uroot", "-proot", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: alicloud-disk-essd
+        resources:
+          requests:
+            storage: 40Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: rerail
+spec:
+  selector: { app: mysql }
+  ports:
+    - port: 3306
+      targetPort: 3306

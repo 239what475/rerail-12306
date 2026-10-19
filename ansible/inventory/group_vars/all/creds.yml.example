@@ -1,0 +1,32 @@
+# ============================================================
+# ReRail 用户凭据（整个项目仅有的两处凭据之一，另一处是 ECS root 密码在 terraform.tfvars）
+# ============================================================
+# 填写方式：复制本文件为同目录 creds.yml，填好下面三个值。
+# creds.yml 本地留存（gitignored），deploy.sh 会自动同步到 builder，下次初始化无需重填。
+#
+# 信息从哪来（阿里云控制台 → 容器镜像服务 → 个人版实例）：
+#   - 「访问凭证」页：docker login 的用户名（阿里云账号昵称，可能是中文）和密码
+#   - 「概览」页：仓库地址。同 VPC 机器用 -vpc 内网端点（免流量费），
+#     形如 crpi-xxxx-vpc.cn-beijing.personal.cr.aliyuncs.com
+#   - acr_address 要带上命名空间（本例 /rerail）
+#
+# creds.yml 已被 .gitignore 忽略，永远不会进仓库。
+# ============================================================
+
+acr_address: "CHANGE_ME"     # 例: crpi-xxxx-vpc.cn-beijing.personal.cr.aliyuncs.com/rerail
+acr_username: "CHANGE_ME"    # 例: 阿里云账号昵称（可能是中文）
+acr_password: "CHANGE_ME"    # ACR 控制台设置的固定密码
+
+# --- 测试环境中间件凭据（载体项目公开默认值，可入仓库，此处仅集中管理）---
+mysql_root_password: "root"
+redis_password: "123456"
+grafana_admin_password: "ReRailGrafana_2026"
+
+# --- 版本锁定 ---
+otel_jar_local: "/opt/rerail/build/artifacts/opentelemetry-javaagent.jar"  # builder 本地路径
+
+# --- 部署路径 ---
+rerail_root: /opt/rerail
+
+# --- OTel 采样（压测期 1%，排查时可调高）---
+otel_sampling_ratio: "0.01"

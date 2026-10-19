@@ -1,0 +1,19 @@
+# 由 terraform apply 自动生成（local_file.ansible_inventory），勿手改
+all:
+  children:
+    source:
+      children:
+        entry:
+          hosts: { entry: { ansible_host: ${entry_ip} } }
+        app:
+          hosts: { app: { ansible_host: ${app_ip} } }
+        db:
+          hosts: { db: { ansible_host: ${db_ip} } }
+        mw:
+          hosts: { mw: { ansible_host: ${mw_ip} } }
+    builder:
+      hosts:
+        builder: { ansible_host: ${builder_ip} }
+  vars:
+    ansible_user: root
+    builder_public_ip: ${builder_public}

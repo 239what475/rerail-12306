@@ -1,0 +1,39 @@
+name: rerail-observability
+
+# 运行于 builder（host 网络）：Prometheus 抓取 + Grafana 展示 + Zipkin 接收 trace
+services:
+  prometheus:
+    image: {{ acr_address }}/12306-prometheus:v3.1.0
+    container_name: rerail-prometheus
+    network_mode: host
+    restart: unless-stopped
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --web.enable-remote-write-receiver]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prom-data:/prometheus
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  grafana:
+    image: {{ acr_address }}/12306-grafana:11.5.2
+    container_name: rerail-grafana
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: {{ grafana_admin_password }}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  zipkin:
+    image: {{ acr_address }}/12306-zipkin:3
+    container_name: rerail-zipkin
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      STORAGE_TYPE: mem
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

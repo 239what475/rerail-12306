@@ -1,0 +1,55 @@
+# 02 · Redis StatefulSet
+# 镜像：ACR/12306-redis:7-alpine
+# 终端点：redis.rerail:6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: rerail
+  labels: { app: redis }
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      serviceAccountName: rerail-sa
+      containers:
+        - name: redis
+          image: <ACR_REGISTRY>/12306-redis:7-alpine
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--requirepass", "123456", "--maxmemory", "768mb"]
+          resources:
+            requests: { cpu: 100m, memory: 1Gi }
+            limits: { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-a", "123456", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: alicloud-disk-essd
+        resources:
+          requests:
+            storage: 20Gi # ESSD 最小 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: rerail
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+      targetPort: 6379

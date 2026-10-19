@@ -1,0 +1,17 @@
+# 00 · 命名空间 + ServiceAccount + ACR 拉取凭据
+# 部署顺序：本文件最先 apply
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rerail
+  labels:
+    app.kubernetes.io/part-of: rerail
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rerail-sa
+  namespace: rerail
+imagePullSecrets:
+  - name: acr-secret

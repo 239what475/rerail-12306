@@ -1,0 +1,67 @@
+# ReRail 全栈部署（在 builder 上运行）
+# 首次: ansible-playbook site.yml --ask-pass（输入 ECS root 密码完成密钥分发）
+# 之后: ansible-playbook site.yml
+---
+# Play 0 · SSH 引导：builder 生成密钥对（userdata 已做，幂等兜底），公钥分发到全部节点
+- name: bootstrap ssh
+  hosts: builder
+  tasks:
+    - name: 生成 builder 密钥对（如缺失）
+      ansible.builtin.command: ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -q
+      args:
+        creates: /root/.ssh/id_ed25519
+
+    - name: 读取公钥
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519.pub
+      register: builder_pub_b64
+
+    - name: 设置 builder 公钥事实
+      ansible.builtin.set_fact:
+        builder_pubkey: "{{ builder_pub_b64.content | b64decode | trim }}"
+
+- name: 分发 builder 公钥到源端节点
+  hosts: source
+  tasks:
+    - name: 写入 authorized_keys
+      ansible.builtin.authorized_key:
+        user: root
+        key: "{{ hostvars['builder']['builder_pubkey'] }}"
+        state: present
+
+# 全局 IP 变量见 inventory/group_vars/all/ips.yml（惰性 Jinja，从 inventory 派生，零硬编码）
+
+# Play 2 · 通用层：sysctl + Docker + ACR login（全部源端节点）
+- name: common
+  hosts: source
+  roles: [common]
+
+# Play 3 · 监控采集：node_exporter + cAdvisor（全部源端节点）
+- name: monitoring exporters
+  hosts: source
+  roles: [monitoring]
+
+# Play 4 · 数据层：MySQL（先于一切业务）
+- name: database
+  hosts: db
+  roles: [db]
+
+# Play 5 · 中间件层：Redis + RocketMQ + Nacos
+- name: middleware
+  hosts: mw
+  roles: [mw]
+
+# Play 6 · 应用层：user/ticket/order/pay + OTel agent
+- name: application
+  hosts: app
+  roles: [app]
+
+# Play 7 · 接入层：gateway + nginx
+- name: entry
+  hosts: entry
+  roles: [entry]
+
+# Play 8 · builder 观测面：Prometheus + Grafana + Zipkin + k6 物料
+- name: builder observability
+  hosts: builder
+  roles: [builder]

@@ -1,0 +1,86 @@
+# 12 · ticket Service Deployment + Service
+# OTel：由 Instrumentation CR + annotation 注入
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket
+  namespace: rerail
+  labels: { app: ticket }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ticket }
+  template:
+    metadata:
+      labels: { app: ticket }
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: "true"
+    spec:
+      serviceAccountName: rerail-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ticket
+          image: <ACR_REGISTRY>/12306-ticket:otel
+          ports:
+            - containerPort: 9002
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://dbproxy-haproxy.rerail:3306/12306_ticket?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "root"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "root"
+            # 载体 yaml 写死 maximum-pool-size:5 —— 900 RPS 实测借还≤11ms 才不排队，排队崩。
+            # 覆盖为 200（MySQL max_connections=1000、实测仅 2 活跃线程，连接不稀缺）
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "200"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "20"
+            - name: SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR
+              value: "nacos.rerail:8848"
+            - name: SPRING_DATA_REDIS_HOST
+              value: dbproxy-haproxy.rerail
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: SPRING_DATA_REDIS_PASSWORD
+              value: "123456"
+            # Redisson 默认 connectionPoolSize=64 —— 900 RPS 实测打满 + pending 118（Redis 服务端仅 41 ops/s、CPU 0.2%，非服务端瓶颈）
+            # 经 spring.data.redis.redisson.config 整体注入放大（starter 官方属性，免改代码）
+            - name: SPRING_DATA_REDIS_REDISSON_CONFIG
+              value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+            # SB2 风格属性双保险（3.21.3 starter 两代 autoconfig 并存，绑哪个不确定）
+            - name: SPRING_REDIS_REDISSON_CONFIG
+              value: '{"singleServerConfig":{"address":"redis://dbproxy-haproxy.rerail:6379","password":"123456","connectionMinimumIdleSize":32,"connectionPoolSize":256,"subscriptionConnectionMinimumIdleSize":16,"subscriptionConnectionPoolSize":128,"idleConnectionTimeout":30000,"connectTimeout":10000,"timeout":3000,"retryAttempts":3,"retryInterval":1500},"threads":16,"nettyThreads":32}'
+            - name: ROCKETMQ_NAME_SERVER
+              value: "rocketmq-namesrv.rerail:9876"
+            - name: JAVA_OPTS
+              value: "-Dfile.encoding=UTF-8 -javaagent:/otel/opentelemetry-javaagent.jar -Xms512m -Xmx1024m"
+          resources:
+            requests: { cpu: 500m, memory: 1280Mi }
+            limits: { cpu: 2, memory: 2Gi }
+          livenessProbe:
+            tcpSocket: { port: 9002 }
+            initialDelaySeconds: 180
+            periodSeconds: 15
+            failureThreshold: 10
+          readinessProbe:
+            tcpSocket: { port: 9002 }
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket
+  namespace: rerail
+spec:
+  selector: { app: ticket }
+  ports:
+    - port: 9002
+      targetPort: 9002

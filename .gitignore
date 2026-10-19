@@ -1,0 +1,42 @@
+# 运行产物
+deploy/runtime/
+deploy/source/*/data/
+deploy/source/*/brokerstore/
+deploy/source/*/.env
+images*.tar*
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
+
+# 载体仓库独立克隆，不纳入本项目
+12306/
+
+# 本地作战卡片（真实值不入库）
+SECRETS.local.md
+
+# Terraform 运行产物
+terraform/source/.terraform/
+terraform/source/*.tfstate*
+terraform/source/crash.log
+
+# Terraform 运行产物（覆盖所有子目录；state 永不入库）
+terraform/**/.terraform/
+terraform/**/*.tfstate*
+terraform/**/*.tfstate.backup
+terraform/**/crash.log
+terraform/**/*.tfvars
+!terraform/**/*.tfvars.example
+
+# Ansible 运行产物（inventory 由 generate.sh 生成；all.yml 含 ACR 凭据）
+ansible/inventory/hosts.yml
+ansible/inventory/group_vars/all/creds.yml
+
+# 旧 builder 压测备份（含 token，本地留存不入库）
+load-test/_old-builder-backup/
+load-test/users.json
+terraform.tfstate
+
+# 工作区迁移的历史 state 备份（含敏感，本地留存）
+.archive/

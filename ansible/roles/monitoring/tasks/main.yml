@@ -1,0 +1,26 @@
+# role monitoring：node_exporter + cAdvisor（全部源端节点）
+# 从裸 docker run 升级为 compose 托管（与现网容器名/参数一致）
+---
+- name: 部署目录
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/monitoring"
+    state: directory
+    mode: "0755"
+
+- name: 部署 monitoring compose
+  ansible.builtin.template:
+    src: compose-monitoring.yml.j2
+    dest: "{{ rerail_root }}/deploy/monitoring/compose.yml"
+    mode: "0644"
+
+- name: 停掉旧的裸容器（如存在，compose 会接管同名容器）
+  ansible.builtin.command: docker rm -f rerail-nodeexporter rerail-cadvisor
+  failed_when: false
+  changed_when: false
+
+- name: 启动 node_exporter + cAdvisor
+  ansible.builtin.command: docker compose -p rerail-monitoring up -d --pull missing
+  args:
+    chdir: "{{ rerail_root }}/deploy/monitoring"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout or 'Recreated' in compose_up.stdout"

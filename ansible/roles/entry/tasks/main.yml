@@ -1,0 +1,49 @@
+# role entry：gateway + nginx（公网入口节点）
+---
+- name: 部署目录
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/{{ item }}"
+    state: directory
+  loop: [entry, config/nginx]
+
+- name: OTel agent JAR
+  ansible.builtin.copy:
+    src: "{{ otel_jar_local }}"
+    dest: "{{ rerail_root }}/otel/opentelemetry-javaagent.jar"
+    mode: "0644"
+
+- name: nginx 配置（keepalive 64 —— 刻意保留瓶颈，K8s 迁移叙事用）
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/config/nginx/nginx.conf"
+    dest: "{{ rerail_root }}/deploy/config/nginx/nginx.conf"
+    mode: "0644"
+
+- name: entry compose
+  ansible.builtin.template:
+    src: compose-entry.yml.j2
+    dest: "{{ rerail_root }}/deploy/entry/compose.yml"
+    mode: "0644"
+
+- name: 清理历史 .env
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/entry/.env"
+    state: absent
+
+- name: 启动 gateway + nginx
+  ansible.builtin.command: docker compose -p rerail-entry up -d --pull missing
+  args:
+    chdir: "{{ rerail_root }}/deploy/entry"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout or 'Recreated' in compose_up.stdout"
+
+- name: 等待 gateway 9000 就绪
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 9000
+    timeout: 180
+
+- name: 等待 nginx 80 就绪
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 80
+    timeout: 60

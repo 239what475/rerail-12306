@@ -1,0 +1,98 @@
+# kube-prometheus-stack values：ACR 镜像 + 精简配置
+# 用法： helm install obs prometheus-community/kube-prometheus-stack -n rerail -f values.yml
+---
+defaultRules:
+  create: false
+
+alertmanager:
+  enabled: false
+
+kubeStateMetrics:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+coreDns:
+  enabled: false
+
+prometheusOperator:
+  image:
+    registry: <ACR_REGISTRY>
+    repository: 12306-prometheus-operator
+    tag: v0.94.1
+  resources:
+    limits: { cpu: 200m, memory: 256Mi }
+  admissionWebhooks:
+    enabled: false  # 不需要 cert-manager
+
+prometheus:
+  image:
+    registry: <ACR_REGISTRY>
+    repository: 12306-prometheus-stack
+    tag: v3.15.0
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  retention: 2h
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    fsGroup: 0
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    additionalScrapeConfigs:
+      - job_name: 'otel-services'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['rerail']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
+
+nodeExporter:
+  image:
+    registry: <ACR_REGISTRY>
+    repository: 12306-node-exporter-stack
+    tag: v1.12.1
+  resources:
+    limits: { cpu: 100m, memory: 64Mi }
+
+grafana:
+  image:
+    registry: <ACR_REGISTRY>
+    repository: 12306-grafana-stack
+    tag: 13.2.4
+  adminPassword: ReRailGrafana_2026
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    type: NodePort
+    nodePort: 30300
+  sidecar:
+    image:
+      registry: <ACR_REGISTRY>
+      repository: 12306-k8s-sidecar
+      tag: "2.14.1"

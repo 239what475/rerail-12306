@@ -1,0 +1,49 @@
+name: rerail-observability
+
+# 运行于 builder（host 网络）：Prometheus 抓取 + Grafana 展示 + Zipkin 接收 trace
+services:
+  prometheus:
+    image: ${ACR:-${ACR_REGISTRY}}/12306-prometheus:v3.1.0
+    container_name: rerail-prometheus
+    network_mode: host
+    restart: unless-stopped
+    # prometheus.yml 内含 ${APP_IP} 等占位符，启动时 envsubst 渲染
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        envsubst < /etc/prometheus/prometheus.tpl.yml > /tmp/prometheus.yml
+        exec prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --web.enable-remote-write-receiver
+    environment:
+      - APP_IP=${APP_IP:-unknown}
+      - DB_IP=${DB_IP:-unknown}
+      - ENTRY_IP=${ENTRY_IP:-unknown}
+      - MW_IP=${MW_IP:-unknown}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.tpl.yml:ro
+      - ./prom-data:/prometheus
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  grafana:
+    image: ${ACR:-${ACR_REGISTRY}}/12306-grafana:11.5.2
+    container_name: rerail-grafana
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ReRailGrafana_2026
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  zipkin:
+    image: ${ACR:-${ACR_REGISTRY}}/12306-zipkin:3
+    container_name: rerail-zipkin
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      STORAGE_TYPE: mem
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }

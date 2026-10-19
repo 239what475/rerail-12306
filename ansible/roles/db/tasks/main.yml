@@ -1,0 +1,57 @@
+# role db：MySQL 8.0（7 库 + 分表，SQL 初始化目录挂载）
+# 坑位记录：SQL 文件必须 LF 行尾（历史上 CRLF 导致 USE 与库名分家初始化失败）
+---
+- name: 部署目录
+  ansible.builtin.file:
+    path: "{{ rerail_root }}/deploy/{{ item }}"
+    state: directory
+  loop: [db, mysql-init, config]
+
+- name: 分发初始化 SQL
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/mysql-init/{{ item }}"
+    dest: "{{ rerail_root }}/deploy/mysql-init/{{ item }}"
+    mode: "0644"
+  loop:
+    - 00-create-databases.sql
+    - 01-schema-user.sql
+    - 02-schema-order.sql
+    - 03-schema-pay.sql
+    - 04-schema-ticket.sql
+    - 05-seed-user.sql
+    - 06-seed-ticket.sql
+    - 07-seed-loadtest.sql
+
+- name: SQL 行尾转 LF（防 Windows CRLF 坑）
+  ansible.builtin.shell: |
+    if grep -lq $'\r' {{ rerail_root }}/deploy/mysql-init/*.sql 2>/dev/null; then
+      sed -i 's/\r$//' {{ rerail_root }}/deploy/mysql-init/*.sql
+      echo CHANGED
+    fi
+  register: crlf_fix
+  changed_when: "'CHANGED' in crlf_fix.stdout"
+
+- name: MySQL 客户端字符集配置（utf8mb4，防中文双编码）
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/config/mysql-clients.cnf"
+    dest: "{{ rerail_root }}/deploy/config/mysql-clients.cnf"
+    mode: "0644"
+
+- name: db compose
+  ansible.builtin.template:
+    src: compose-db.yml.j2
+    dest: "{{ rerail_root }}/deploy/db/compose.yml"
+    mode: "0644"
+
+- name: 启动 MySQL（data 卷保留即跳过初始化）
+  ansible.builtin.command: docker compose -p rerail-db up -d --pull missing
+  args:
+    chdir: "{{ rerail_root }}/deploy/db"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout or 'Recreated' in compose_up.stdout"
+
+- name: 等待 3306 就绪
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 3306
+    timeout: 120
