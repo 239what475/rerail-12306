@@ -5,13 +5,29 @@
 ## 架构
 
 ```
-用户 → ALB（按权重切流）
+用户 → ALB（按权重切流，可灰度可回滚）
   → ACK 集群
-      ├─ gateway / user / ticket / order / pay（HPA 1→3）
-      ├─ HAProxy（数据代理，runtime API 热切换后端）
-      │    ├─ :6379 → Redis
-      │    └─ :3306 → MySQL
-      ├─ RocketMQ / Nacos / Zipkin / Prometheus / Grafana
+      │
+      ├─ 业务层（HPA 1→3 副本）
+      │    gateway → user / ticket / order / pay
+      │         │
+      │         ↓
+      ├─ 数据代理层
+      │    HAProxy（2 副本，runtime API 热切换后端）
+      │         ├─ :6379 → Redis（PVC）
+      │         └─ :3306 → MySQL（PVC，init 镜像首次启动自动建库灌数据）
+      │
+      ├─ 消息层
+      │    RocketMQ（Headless DNS 稳定地址注册，PVC）
+      │
+      ├─ 服务发现
+      │    Nacos（集群内闭环，不跨集群）
+      │
+      └─ 观测层
+           OTel Agent（烧进服务镜像）
+             ├─ traces  → Zipkin
+             ├─ metrics → Prometheus → Grafana（NodePort）
+             └─ logs    → stdout
 ```
 
 ## 部署

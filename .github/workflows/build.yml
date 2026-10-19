@@ -48,15 +48,34 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
           docker push $REGISTRY/$OWNER/12306-${{ matrix.service }}:${{ github.ref_name }}
 
+  mysql-init:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build mysql-init
+        run: |
+          docker build \
+            -f build/Dockerfile.mysql-init \
+            -t $REGISTRY/$OWNER/12306-mysql-init:${{ github.ref_name }} \
+            .
+
+      - name: Push to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
+          docker push $REGISTRY/$OWNER/12306-mysql-init:${{ github.ref_name }}
+
   verify:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, mysql-init]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Verify images on GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
-          for svc in gateway user ticket order pay; do
+          for svc in gateway user ticket order pay mysql-init; do
             docker manifest inspect $REGISTRY/$OWNER/12306-$svc:${{ github.ref_name }} > /dev/null && echo "$svc: OK" || exit 1
           done
-          echo "All 5 images verified on GHCR"
+          echo "All 6 images verified on GHCR"
